@@ -80,7 +80,7 @@ class convnet(object):
             batch_images = data['data'].reshape((-1,3,32,32))
             batch_images = batch_images.transpose([0,2,3,1])
             #divide by 256 to normalize the data to [0,1]
-            self.images[10000*(i-1):10000*i,:,:,:] = batch_images/256.0
+            self.images[10000*(i-1):10000*i,:,:,:] = batch_images/128.0 - 1
             #instead of 0-9, we want one-hot vectors, so a label of '3' becomes (0,0,0,1,0,0,0,0,0,0)
             self.labels[np.arange(10000*(i-1),10000*i),batch_labels] = 1
 
@@ -90,7 +90,7 @@ class convnet(object):
         self.test_labels = np.zeros([10000,10])
         self.test_labels[np.arange(10000),test_data['labels']]=1
         self.test_images = test_data['data'].reshape((-1,3,32,32))
-        self.test_images = self.test_images.transpose([0,2,3,1]) / 256.0
+        self.test_images = self.test_images.transpose([0,2,3,1]) / 128.0 - 1
 
     #fetch a batch of training data, index tells us which batch we're getting
     def get_batch(self,index):
@@ -107,10 +107,26 @@ class convnet(object):
         np.random.set_state(rng_state)
         np.random.shuffle(self.labels)
 
-
-    def save_filters(name,count,sess):
+    def save_filters(self,name,count,sess):
         filter_values = sess.run(self.filter_map[name])
-        
+
+        padded = np.lib.pad(filter_values,((1,1),(1,1),(0,0),(0,0)),'constant',constant_values=-0.1)
+        scale_factor = 4
+        scaled_size = scale_factor*(self.filter_size+2)
+        depth = filter_values.shape[3]
+        output_image = np.zeros((scaled_size * 8,scaled_size * (depth/8),3))
+        for i in range(depth):
+            x = i//8
+            y = i%8
+            image = scipy.misc.toimage(padded[:,:,:,i],cmin=-0.1,cmax=0.1)
+            resized = scipy.misc.imresize(image,(scaled_size,scaled_size,3),interp='nearest')
+            output_image[x*scaled_size:(x+1)*scaled_size,y*scaled_size:(y+1)*scaled_size,:] = resized
+
+        image = scipy.misc.toimage(output_image,cmin=0,cmax=255)
+        image.save("{:s}_{:05d}_filters.png".format(name,count));
+
+
+
 
 
     def train(self,epochs,sess):
@@ -124,6 +140,7 @@ class convnet(object):
                 _,loss,output = sess.run([self.train_op,self.loss,self.out],feed_dict={self.input_images: batch_images,self.batch_labels: batch_labels,self.kp: 0.5})
                 count+=1
                 if(count%100==0):
+                    self.save_filters('h0',count,sess)
                     accuracy= sess.run(self.accuracy,feed_dict={self.input_images: self.test_images,self.batch_labels: self.test_labels,self.kp: 1})
                     print("Epoch {:3d}, batch {:3d} - Accuracy={:0.4f} Batch_Loss={:0.4f}".format(ep,batch_index,accuracy,loss))
 

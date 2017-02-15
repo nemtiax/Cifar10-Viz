@@ -7,15 +7,19 @@ import tensorflow as tf
 
 class convnet(object):
 
-    def __init__(self,batch_size=64,filter_size=5):
+    def __init__(self,batch_size=64,filter_size=5,first_layer_filters=64,filter_growth_factor=4):
         self.batch_size = batch_size
         self.filter_size = filter_size
         self.input_images = tf.placeholder(tf.float32,shape=[None,32,32,3])
         self.batch_labels = tf.placeholder(tf.float32,shape=[None,10])
+        self.first_layer_filters = first_layer_filters
+        self.filter_growth_factor = filter_growth_factor
         self.kp = tf.placeholder(tf.float32)
+        self.filter_map = {}
 
-    def conv2d(self,input,in_channels,out_channels,non_linearity=tf.nn.relu):
+    def conv2d(self,input,in_channels,out_channels,name='NONE',non_linearity=tf.nn.relu):
         filters = tf.Variable(tf.truncated_normal([self.filter_size,self.filter_size,in_channels,out_channels],stddev=0.01))
+        self.filter_map[name] = filters
         biases = tf.Variable(tf.truncated_normal([out_channels],stddev=0.01))
         return non_linearity(tf.nn.conv2d(input,filters,strides=[1, 1, 1, 1], padding='SAME')+biases)
 
@@ -28,15 +32,20 @@ class convnet(object):
         return non_linearity(tf.matmul(input,weights)+biases)
 
     def build(self):
-        self.h0 = self.conv2d(self.input_images,3,64) #32x32x64
-        self.h0_pool = self.max_pool(self.h0) #16x16x64
-        self.h1 = self.conv2d(self.h0_pool,64,256) #16x16x256
-        self.h1_pool = self.max_pool(self.h1) #8x8x256
-        self.h2 = self.conv2d(self.h1_pool,256,1024) #8x8x1024
-        self.h2_pool = self.max_pool(self.h2) #4x4x1024
 
-        self.h2_flat = tf.reshape(self.h2_pool,[-1,4*4*1024])
-        self.fc_layer = tf.nn.dropout(self.fc(self.h2_flat,4*4*1024,1024,tf.nn.relu),keep_prob=self.kp)
+        f0 = self.first_layer_filters
+        f1 = f0*self.filter_growth_factor
+        f2 = f1*self.filter_growth_factor
+
+        self.h0 = self.conv2d(self.input_images,3,f0,name='h0') #32x32xf0
+        self.h0_pool = self.max_pool(self.h0) #16x16xf0
+        self.h1 = self.conv2d(self.h0_pool,f0,f1,name='h1') #16x16xf1
+        self.h1_pool = self.max_pool(self.h1) #8x8xf1
+        self.h2 = self.conv2d(self.h1_pool,f1,f2,name='h2') #8x8xf2
+        self.h2_pool = self.max_pool(self.h2) #4x4xf2
+
+        self.h2_flat = tf.reshape(self.h2_pool,[-1,4*4*f2])
+        self.fc_layer = tf.nn.dropout(self.fc(self.h2_flat,4*4*f2,1024,tf.nn.relu),keep_prob=self.kp)
         self.out = self.fc(self.fc_layer,1024,10,tf.identity)
 
     def build_loss(self):
@@ -97,6 +106,12 @@ class convnet(object):
         np.random.shuffle(self.images)
         np.random.set_state(rng_state)
         np.random.shuffle(self.labels)
+
+
+    def save_filters(name,count,sess):
+        filter_values = sess.run(self.filter_map[name])
+        
+
 
     def train(self,epochs,sess):
         tf.global_variables_initializer().run()
